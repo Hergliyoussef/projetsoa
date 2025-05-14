@@ -1,0 +1,16 @@
+syntax = "proto3";
+package rdv;
+
+service RdvService {
+  rpc CreateRdv (RdvRequest) returns (RdvResponse);
+}
+
+message RdvRequest {
+  string patientId = 1;
+  string date = 2;
+}
+
+message RdvResponse {
+  string message = 1;
+}
+
