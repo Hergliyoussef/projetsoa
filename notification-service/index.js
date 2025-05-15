@@ -1,19 +1,17 @@
 const { Kafka } = require('kafkajs');
 
-const kafka = new Kafka({ clientId: 'notif-service', brokers: ['localhost:9092'] });
+const kafka    = new Kafka({ clientId: 'notif', brokers: ['localhost:9092'] });
 const consumer = kafka.consumer({ groupId: 'notif-group' });
 
-const run = async () => {
+async function run() {
   await consumer.connect();
   await consumer.subscribe({ topic: 'rdv_created', fromBeginning: true });
-
   await consumer.run({
     eachMessage: async ({ message }) => {
       const { patientId, date } = JSON.parse(message.value.toString());
-      console.log(`Notification : Rendez-vous confirmé pour patient ${patientId} le ${date}`);
+      console.log(`🔔 Notification: Rdv confirmé pour ${patientId} le ${date}`);
     }
   });
-};
+}
 
 run().catch(console.error);
-

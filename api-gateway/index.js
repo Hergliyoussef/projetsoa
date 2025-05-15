@@ -4,80 +4,91 @@ const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const path = require('path');
 
-// 1. Charger le fichier .proto
-const packageDefinition = protoLoader.loadSync(
-  path.join(__dirname, '../proto/rdv.proto'),
-  { keepCase: true, longs: String, enums: String, defaults: true, oneofs: true }
-);
-const rdvProto = grpc.loadPackageDefinition(packageDefinition).rdv;
+// Charger les .proto partagés
+const rdvDef = protoLoader.loadSync(path.join(__dirname, '../proto/rdv.proto'));
+const rdvProto = grpc.loadPackageDefinition(rdvDef).rdv;
+const patientDef = protoLoader.loadSync(path.join(__dirname, '../proto/patient.proto'));
+const patientProto = grpc.loadPackageDefinition(patientDef).patient;
 
-// 2. Créer le client gRPC vers rdv-service
-const rdvClient = new rdvProto.RdvService(
-  'localhost:50051',
-  grpc.credentials.createInsecure()
-);
+// Instancier les clients gRPC
+const rdvClient = new rdvProto.RdvService('localhost:50051', grpc.credentials.createInsecure());
+const patientClient = new patientProto.PatientService('localhost:50052', grpc.credentials.createInsecure());
 
-// 3. Initialiser Express
 const app = express();
-// n’appliquer express.json() **que** sur la route /rdv
+// parsing JSON uniquement sur les routes REST
 app.use('/rdv', express.json());
+app.use('/patient', express.json());
 
-// 4. Route REST
+// REST: créer un patient
+app.post('/patient', (req, res) => {
+  patientClient.CreatePatient(req.body, (err, resp) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(resp);
+  });
+});
+// REST: récupérer un patient
+app.get('/patient/:id', (req, res) => {
+  patientClient.GetPatient({ id: req.params.id }, (err, resp) => {
+    if (err) return res.status(404).json({ error: err.message });
+    res.json(resp);
+  });
+});
+// REST: créer un RDV
 app.post('/rdv', (req, res) => {
-  const { patientId, date } = req.body;
-  rdvClient.CreateRdv({ patientId, date }, (err, response) => {
-    if (err) {
-      console.error('gRPC error:', err);
-      return res.status(500).json({ error: err.message });
-    }
-    res.json(response);
+  rdvClient.CreateRdv(req.body, (err, resp) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(resp);
   });
 });
 
-// 5. Schéma GraphQL
+// GraphQL schema
 const typeDefs = gql`
-  type Query {
-    _empty: String
-  }
+  type Patient { id: String!, name: String!, age: Int!, message: String }
+  type Rdv     { message: String! }
 
+  type Query {
+    getPatient(id: String!): Patient
+  }
   type Mutation {
-    createRdv(patientId: String!, date: String!): String!
+    createPatient(id: String!, name: String!, age: Int!): Patient
+    createRdv(patientId: String!, date: String!): String
   }
 `;
 
-// 6. Résolveurs GraphQL
+// GraphQL resolvers
 const resolvers = {
+  Query: {
+    getPatient: (_, { id }) =>
+      new Promise((resolve, reject) =>
+        patientClient.GetPatient({ id }, (err, resp) =>
+          err ? reject(err) : resolve(resp)
+        )
+      )
+  },
   Mutation: {
-    createRdv: async (_, { patientId, date }) => {
-      return new Promise((resolve, reject) => {
-        rdvClient.CreateRdv({ patientId, date }, (err, response) => {
-          if (err) {
-            console.error('gRPC error:', err);
-            return reject(new Error('Échec création RDV'));
-          }
-          resolve(response.message);
-        });
-      });
-    }
+    createPatient: (_, args) =>
+      new Promise((resolve, reject) =>
+        patientClient.CreatePatient(args, (err, resp) =>
+          err ? reject(err) : resolve(resp)
+        )
+      ),
+    createRdv: (_, { patientId, date }) =>
+      new Promise((resolve, reject) =>
+        rdvClient.CreateRdv({ patientId, date }, (err, resp) =>
+          err ? reject(err) : resolve(resp.message)
+        )
+      )
   }
 };
 
-// 7. Lancer Apollo Server avec introspection et playground
-async function startServer() {
-  const server = new ApolloServer({
-    typeDefs,
-    resolvers,
-    introspection: true,
-    playground: true
-  });
-
+async function start() {
+  const server = new ApolloServer({ typeDefs, resolvers, introspection: true, playground: true });
   await server.start();
-  server.applyMiddleware({ app });  // montera le routeur GraphQL sur /graphql
-
+  server.applyMiddleware({ app });
   app.listen(3000, () => {
-    console.log('✅ API Gateway lancé sur http://localhost:3000');
-    console.log('➡️  Explorer GraphQL : http://localhost:3000/graphql');
+    console.log('API Gateway lancé sur http://localhost:3000');
+    console.log('GraphQL disponible sur http://localhost:3000/graphql');
   });
 }
 
-startServer();
+start();
