@@ -1,4 +1,4 @@
-MicroSanté
+MicroSanté (3 micro services : patient-service , rdv-service & notoficationse-service) en utulisant REST , gRPC , GrapgQL , Kafka & MongoDB .
 
 Plateforme distribuée de gestion de patients et de rendez-vous médicaux, basée sur une architecture microservices utilisant :
 
